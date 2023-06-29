@@ -1,0 +1,222 @@
+ #Load packages and functions
+```{r}
+options(java.parameters = "-Xmx8000m")
+library(tidyverse) 
+library(tidytext) 
+library(syuzhet)
+library(ggvis)
+library(mltools)
+library(data.table)
+#library('corrr')
+library(ggcorrplot)
+#install.packages("FactoMineR")
+library("FactoMineR")
+# Installing required package
+#install.packages("dplyr")
+# Loading the package
+#library(dplyr)
+library(caret)
+library(qdap)
+library(randomForest)
+library(rpart)
+library(rattle)
+```
+# Load News Stories dataset
+```{r}
+rm(list = ls())
+# Load data
+newsDataset <- file.path('C:/Users/kepic/Downloads/NewsDatasetTwo.csv')
+news <- read_csv(newsDataset, show_col_types = FALSE)
+spec(news)
+
+```
+#Count words in text
+```{r}
+textCount = list()
+for(i in 1:nrow(news))
+{
+  str <- toString(news[i, 2])
+  split <- strsplit(str," ")
+  temp <- sapply(split , length)
+  textCount <- append(textCount, temp)
+}
+news <- cbind(news, empty_column=NA)
+unlistCount <- unlist(textCount)
+news$col6 <- unlistCount
+colnames(news)[6] = "textCount"
+```
+#Count words in title
+```{r}
+headCount = list()
+for(i in 1:nrow(news))
+{
+  str <- toString(news[i, 1])
+  split <- strsplit(str," ")
+  temp <- sapply(split , length)
+  headCount <- append(headCount, temp)
+}
+news <- cbind(news, empty_column=NA)
+unlistCount <- unlist(headCount)
+news$col7 <-unlistCount
+colnames(news)[7] = "headCount"
+```
+#Readability Analysis
+
+```{r}
+nrow(news)
+readList <- list()
+FormList <- list()
+sentenceList <- list()
+charList <- list()
+
+for(i in 1:nrow(news))
+{
+  str <- toString(news[i,2])
+  if(grepl("\\.", str))
+  {
+    Ascii <- iconv(str, "latin1","ASCII","")
+    temp <- data.frame(text=Ascii)
+    temp2 <- sentSplit(temp, 'text')
+    readabilitydf <- automated_readability_index(temp2$text,)
+    formalitydf <- formality(temp2$text,)
+    readAnalysis <- readabilitydf$Readability
+    formAnalysis <- formalitydf$formality
+    r <- readAnalysis[1,5]
+    s <- readAnalysis[1,3]
+    c <- readAnalysis[1,4]
+    f <- formAnalysis$formality
+    readList <- append(readList, r)
+    FormList <- append(FormList, f)
+    sentenceList <- append(sentenceList, s)
+    charList <- append(charList, c)
+    print(i)
+  }
+  else
+  {
+    r<- 0
+    f<- 0
+    s<- 0
+    c<- nchar(str)
+    readList <- append(readList, r)
+    FormList <- append(FormList, f)
+    sentenceList <- append(sentenceList, s)
+    charList <- append(charList, c)
+    print(i)
+  }
+
+}
+
+```
+#Add lists to the dataset
+
+```{r}
+news <- as.data.table(news)
+news$Readability <- unlist(readList)
+news$Formality <- unlist(FormList) 
+news$SentCount <- unlist(sentenceList) 
+news$charCount <- unlist(charList) 
+```
+#Write to a new dataset
+```{r}
+write.csv(news, "C:\\Users\\kepic\\Downloads\\CleanNews.csv", row.names=TRUE)
+
+```
+```{r}
+newsClean <- file.path('C:/Users/kepic/Downloads/CleanNews.csv')
+newsClean <- read_csv(newsClean, show_col_types = FALSE)
+```
+#Delete empty columns
+#```{r}
+#empty_columns <- colSums(is.na(newsClean) | news == "") == nrow(newsClean)
+#newsClean <- newsClean[, !empty_columns]
+#```
+#summarize the data
+```{r}
+summary(newsClean)
+print(newsClean)
+spec(newsClean)
+```
+#Plotting the data
+```{r}
+
+#split input and output
+x <- newsClean[,7:13]
+y <- newsClean[,5]
+
+
+#boxplot for each attribute on one image
+#par(mfrow=c(1,7))
+#  {
+#  boxplot(x[,1], main=names(newsClean)[i])
+#  boxplot(x[,3], main=names(newsClean)[i])
+    
+#}
+
+#Plotting how many entries are real and how many are fake
+plot(y)
+
+#MultiVariate Plots
+featurePlot(x=x, y=y)
+```
+
+#The machine learning algorithm
+
+
+#Create test data
+```{r}
+#control <- trainControl(method="cv", number=10)
+#metric <- "Accuracy"
+set.seed(7)
+row.number <- sample(1:nrow(newsClean), 0.8*nrow(newsClean))
+train = newsClean[row.number,]
+test = newsClean[-row.number,]
+dim(train)
+dim(test)
+```
+
+#Build Model
+```{r}
+set.seed(7)
+simple_linear_model = lm(data = train,
+                         Real ~ headCount + col7 + Readability + Formality + SentCount + charCount)
+model_glm = glm(Real ~ headCount + col7 + Readability + Formality + SentCount + charCount, family="binomial", data = train)
+train$Real <- factor(train$Real, levels = c(0, 1))
+rf <- randomForest(Real ~ headCount + col7 + Readability + Formality + SentCount + charCount, data=train, proximity=TRUE)
+summary(simple_linear_model)
+summary(model_glm)
+summary(rf)
+plot(rf)
+plot(model_glm)
+plot(simple_linear_model)
+pred <- predict(simple_linear_model, newdata=test)
+pred2 <- predict(model_glm, newdata=test)
+pred3 <- predict(rf, newdata=test)
+plot(pred)
+plot(pred2)
+plot(pred3)
+summary(pred)
+summary(pred2)
+summary(pred3)
+```
+```{r}
+set.seed(7)
+train$Real <- factor(train$Real, levels = c(0, 1))
+rf <- randomForest(Real ~ headCount + col7 + Readability + Formality + SentCount + charCount, data=train, proximity=TRUE)
+classifier = rpart(Real ~ (Formality^2) + (Readability^2) + (charCount^2) + (headCount^2) + (SentCount^2) - col7, data = train)
+summary(classifier)
+```
+
+```{r}
+fancyRpartPlot(classifier,main=paste('RPART:'))
+pred <- predict(classifier, newdata = test, type = 'class')
+pred
+print(test)
+```
+
+
+
+#Save model
+```{r}
+save(rf, file = "NewsML.RData")
+saveRDS(classifier, file="NewsML.rds")
+```
